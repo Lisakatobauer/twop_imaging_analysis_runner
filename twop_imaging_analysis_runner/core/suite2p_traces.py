@@ -34,8 +34,8 @@ class Suite2pTraces:
         self._suite2p = {}
 
         # Changed: Initialize process_status and load_status per experiment and plane
-        self.process_status = {exp: {plane: False for plane in range(self.nplanes)} for exp in self.experiments}
-        self.load_status = {exp: {plane: False for plane in range(self.nplanes)} for exp in self.experiments}
+        self.process_status = {str(int(exp)): {plane: False for plane in range(self.nplanes)} for exp in self.experiments}
+        self.load_status = {str(int(exp)): {plane: False for plane in range(self.nplanes)} for exp in self.experiments}
 
         # Initialize processed_data structure
         self.processed_data = {t: {} for t in self.TRACE_TYPES}
