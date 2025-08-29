@@ -214,4 +214,3 @@ class Suite2pTraces:
             return self.processed_data[trace_type].get(plane)
         else:
             return {p: self.processed_data[trace_type].get(p) for p in range(self.nplanes)}
-        
