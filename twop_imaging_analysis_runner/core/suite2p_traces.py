@@ -33,9 +33,12 @@ class Suite2pTraces:
 
         self._suite2p = {}
 
+        # Changed: Initialize process_status and load_status per experiment and plane
+        self.process_status = {exp: {plane: False for plane in range(self.nplanes)} for exp in self.experiments}
+        self.load_status = {exp: {plane: False for plane in range(self.nplanes)} for exp in self.experiments}
+
+        # Initialize processed_data structure
         self.processed_data = {t: {} for t in self.TRACE_TYPES}
-        self.load_status = {plane: False for plane in range(self.nplanes)}
-        self.process_status = {plane: False for plane in range(self.nplanes)}
 
     def get_trace_path(self, experiment_number: str, plane: int) -> Path:
         """Returns the path to the raw F.npy trace file."""
@@ -85,33 +88,75 @@ class Suite2pTraces:
         return traces
 
     def process_all(self):
+        """Process all experiments, checking if files already exist to avoid reprocessing."""
         for exp in self.experiments:
             exp = str(int(exp))
             print(f"\nProcessing experiment {exp} for Fish {self.fishnum}")
+
+            # Check if all processed files already exist for this experiment
+            all_files_exist = True
+            for plane in range(self.nplanes):
+                for trace_type in self.TRACE_TYPES:
+                    save_path = self.get_save_path(exp, plane, trace_type)
+                    if not save_path.exists():
+                        all_files_exist = False
+                        break
+                if not all_files_exist:
+                    break
+
+            if all_files_exist:
+                print(f"All processed files already exist for experiment {exp}, skipping...")
+                # Update status to indicate files are already processed
+                for plane in range(self.nplanes):
+                    self.process_status[exp][plane] = True
+                    self.load_status[exp][plane] = True
+                continue
+
+            # Process the experiment if files don't exist
             raw_traces = self.load_raw_traces(exp)
             for plane in range(self.nplanes):
                 self.process_plane(raw_traces[plane], exp, plane)
 
     def process_plane(self, traces: np.ndarray, experiment_number: str, plane: int):
+        """Process a single plane, checking if already processed."""
         print(f"Processing plane {plane} for experiment {experiment_number}...")
 
-        if self.process_status[plane]:
+        # Check if already processed
+        if self.process_status[experiment_number][plane]:
+            print(f"Plane {plane} for experiment {experiment_number} already processed, skipping...")
             return
 
+        # Check if processed files already exist
+        all_files_exist = True
+        for trace_type in self.TRACE_TYPES:
+            save_path = self.get_save_path(experiment_number, plane, trace_type)
+            if not save_path.exists():
+                all_files_exist = False
+                break
+
+        if all_files_exist:
+            print(f"Processed files already exist for plane {plane} in experiment {experiment_number}, skipping...")
+            self.process_status[experiment_number][plane] = True
+            self.load_status[experiment_number][plane] = True
+            return
+
+        # Process the traces
         dff = self._process_traces(traces, dff=True)
         zscore = self._process_traces(traces, zscore=True)
         dff_smooth = self._process_traces(traces, dff=True, smooth=True)
         zscore_smooth = self._process_traces(traces, zscore=True, smooth=True)
 
-        self.processed_data['dff'][plane] = dff[self.cellid(plane, experiment_number), :]
-        self.processed_data['zscore'][plane] = zscore[self.cellid(plane, experiment_number), :]
-        self.processed_data['dff_smooth'][plane] = dff_smooth[self.cellid(plane, experiment_number), :]
-        self.processed_data['zscore_smooth'][plane] = zscore_smooth[self.cellid(plane, experiment_number), :]
+        # Store only the cell traces (filter by cellid)
+        cell_ids = self.cellid(plane, experiment_number)
+        self.processed_data['dff'][plane] = dff[cell_ids, :]
+        self.processed_data['zscore'][plane] = zscore[cell_ids, :]
+        self.processed_data['dff_smooth'][plane] = dff_smooth[cell_ids, :]
+        self.processed_data['zscore_smooth'][plane] = zscore_smooth[cell_ids, :]
 
         self.save_traces(experiment_number, plane)
 
-        self.process_status[plane] = True
-        self.load_status[plane] = True
+        self.process_status[experiment_number][plane] = True
+        self.load_status[experiment_number][plane] = True
 
     def save_traces(self, experiment_number: str, plane: int):
         print(f"Saving traces for plane {plane} in experiment {experiment_number}")
@@ -169,3 +214,4 @@ class Suite2pTraces:
             return self.processed_data[trace_type].get(plane)
         else:
             return {p: self.processed_data[trace_type].get(p) for p in range(self.nplanes)}
+        
