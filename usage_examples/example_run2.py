@@ -16,7 +16,7 @@ config = Suite2pConfig(
     processed_path,
     suite2p_ops)
 
-config.get_fish_config(118)
+config.get_fish_config(120)
 # config.load_all_fish_configs()
 fish_ids = config.get_loaded_fish_ids()
 

@@ -398,7 +398,7 @@ class Suite2pProcessor(ProcessingUnit):
 
         db = {
             'look_one_level_down': False,
-            'data_path': [os.path.join(self.filter_path, 'suite2p', 'plane0', 'reg_tif_chan2')],
+            'data_path': [os.path.join(self.filter_path, 'suite2p', 'plane0', 'reg_tif_chan2')], # TODO downsampled
             'save_path0': self.plane_save_path,
             'fs': self.volumerate,
             'reg_tif': False,
