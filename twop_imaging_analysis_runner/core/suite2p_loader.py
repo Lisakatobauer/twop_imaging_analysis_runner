@@ -3,6 +3,7 @@ from typing import Union
 import numpy as np
 from dataclasses import dataclass
 from skimage import io as skio
+import os
 
 
 @dataclass
@@ -19,7 +20,7 @@ class Suite2pLoader:
     loads suite2p pipeline output.
     """
 
-    def __init__(self, config, fishnum, experiment_n, nplanes):
+    def __init__(self, config, fishnum, exptype, experiment_n, nplanes):
 
         """
         Initialize Suite2p loader.
@@ -36,6 +37,7 @@ class Suite2pLoader:
         self.setup_data = config.suite2p_ops
 
         self.nplanes = nplanes
+        self.exptype = exptype
         self.experiment_n = experiment_n
 
         self._suite2p = {}
@@ -118,6 +120,12 @@ class Suite2pLoader:
     def zscore_smooth(self, plane_n=0):
         return self._load_optional(plane_n, 'zscore_smooth_traces')
 
+    def agrr_dff_smooth(self, plane_n=0):
+        return self._load_optional(plane_n, 'dff_agrr_smooth_traces')
+
+    def agrr_zscore_smooth(self, plane_n=0):
+        return self._load_optional(plane_n, 'zscore_agrr_smooth_traces')
+
     def cellid(self, plane_n=0):
         rois = self.ftracesrois(plane_n)
         iscell = self.suite2p_data[str(plane_n)][1][:, 0].copy()
@@ -146,6 +154,44 @@ class Suite2pLoader:
     def smoothed_zscorecells(self, plane_n=0):
         data = self.zscore_smooth(plane_n)
         return data if data is not None else None
+
+    def agrr_smoothed_dffcells(self, plane_n=0):
+        data = self.agrr_dff_smooth(plane_n)
+        return data if data is not None else None
+
+    def agrr_smoothed_zscorecells(self, plane_n=0):
+        data = self.agrr_zscore_smooth(plane_n)
+        return data if data is not None else None
+
+    def neuron_activity_experiment(self, trace_type='smoothed_dff'):
+        neuron_activity_experiment = []
+        if trace_type == 'smoothed_dff':
+            for plane_n in range(6):
+                neuron_activity_experiment.append(
+                    self.smoothed_dffcells(plane_n)
+                )
+        if trace_type == 'agrr_smoothed_dff':
+            for plane_n in range(6):
+                neuron_activity_experiment.append(
+                    self.agrr_smoothed_dffcells(plane_n)
+                )
+
+        if trace_type == 'agrr_smoothed_zscore':
+            for plane_n in range(6):
+                neuron_activity_experiment.append(
+                    self.agrr_smoothed_zscorecells(plane_n)
+                )
+
+        neuron_activity_experiment = np.concatenate(neuron_activity_experiment)
+
+        save_path = os.path.join(self.suite2ppath_processed, f'Fish_{self.fishnum}', self.exptype)
+        os.makedirs(save_path, exist_ok=True)
+        save_file = os.path.join(save_path, f'neuron_activity_experiment_{trace_type}.npy')
+        if not os.path.exists(save_file):
+            np.save(save_file, neuron_activity_experiment,
+                    allow_pickle=True)
+
+        return neuron_activity_experiment
 
     def rawtif(self, plane_n=0):
         """Loads the raw merged TIFF for a given plane."""

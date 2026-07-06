@@ -3,6 +3,8 @@ import os
 import numpy as np
 from scipy import stats
 from scipy.ndimage import uniform_filter1d
+from scipy.ndimage import gaussian_filter1d
+from scipy.signal import savgol_filter
 from sklearn import preprocessing
 from pathlib import Path
 from typing import Dict, Optional, Union
@@ -12,7 +14,7 @@ class Suite2pTraces:
     """
     Runs processing of suite2p outputted fluorescent traces.
     """
-    TRACE_TYPES = ['dff', 'zscore', 'dff_smooth', 'zscore_smooth']
+    TRACE_TYPES = ['dff', 'zscore', 'dff_smooth', 'zscore_smooth', 'dff_agrr_smooth', 'zscore_agrr_smooth']
 
     def __init__(self, config, fishnum):
 
@@ -121,11 +123,6 @@ class Suite2pTraces:
         """Process a single plane, checking if already processed."""
         print(f"Processing plane {plane} for experiment {experiment_number}...")
 
-        # Check if already processed
-        if self.process_status[experiment_number][plane]:
-            print(f"Plane {plane} for experiment {experiment_number} already processed, skipping...")
-            return
-
         # Check if processed files already exist
         all_files_exist = True
         for trace_type in self.TRACE_TYPES:
@@ -142,9 +139,11 @@ class Suite2pTraces:
 
         # Process the traces
         dff = self._process_traces(traces, dff=True)
-        zscore = self._process_traces(traces, zscore=True)
+        zscore = self._process_traces(traces, dff=True, zscore=True)
         dff_smooth = self._process_traces(traces, dff=True, smooth=True)
-        zscore_smooth = self._process_traces(traces, zscore=True, smooth=True)
+        zscore_smooth = self._process_traces(traces, dff=True, zscore=True, smooth=True)
+        dff_agrr_smooth = self._process_traces(traces, dff=True, agrr_smooth=True)
+        zscore_agrr_smooth = self._process_traces(traces, dff=True, zscore=True, agrr_smooth=True)
 
         # Store only the cell traces (filter by cellid)
         cell_ids = self.cellid(plane, experiment_number)
@@ -152,6 +151,8 @@ class Suite2pTraces:
         self.processed_data['zscore'][plane] = zscore[cell_ids, :]
         self.processed_data['dff_smooth'][plane] = dff_smooth[cell_ids, :]
         self.processed_data['zscore_smooth'][plane] = zscore_smooth[cell_ids, :]
+        self.processed_data['dff_agrr_smooth'][plane] = dff_agrr_smooth[cell_ids, :]
+        self.processed_data['zscore_agrr_smooth'][plane] = zscore_agrr_smooth[cell_ids, :]
 
         self.save_traces(experiment_number, plane)
 
@@ -166,22 +167,22 @@ class Suite2pTraces:
                 save_path = self.get_save_path(experiment_number, plane, trace_type)
                 np.save(save_path, data)
 
-    def _process_traces(self, traces: np.ndarray, dff=False, zscore=False, smooth=False, normalize=False) -> np.ndarray:
+    def _process_traces(self, traces: np.ndarray, detrend=False, dff=False, zscore=False, smooth=False, agrr_smooth=False) -> np.ndarray:
         traces = traces.astype(np.float32)
         processed = np.empty_like(traces)
 
         for i in range(traces.shape[0]):
             trace = traces[i]
-            trace = self._detrend(trace)
-
-            if normalize:
-                trace = preprocessing.normalize(trace.reshape(1, -1)).flatten()
+            if detrend:
+                trace = self._detrend(trace)
             if dff:
                 trace = self._calculate_dff(trace)
+            if smooth:
+                trace = self._smooth_trace_savgol(trace)
+            if agrr_smooth:
+                trace = self._smooth_trace_savgol(trace, window_length=20, polyorder=2)
             if zscore:
                 trace = stats.zscore(trace, nan_policy='raise')
-            if smooth:
-                trace = self._smooth_trace(trace)
 
             processed[i] = trace
 
@@ -197,14 +198,38 @@ class Suite2pTraces:
         return detrended
 
     @staticmethod
-    def _calculate_dff(trace: np.ndarray) -> np.ndarray:
-        f0 = np.mean(trace[trace <= np.percentile(trace, 5)])
-        f0 = max(f0, 1.0)
-        return (trace - f0) / f0
+    def _calculate_dff(trace: np.ndarray, offset=50, percentile=10) -> np.ndarray:
+        trace = np.asarray(trace, dtype=np.float64)
 
-    def _smooth_trace(self, trace: np.ndarray) -> np.ndarray:
+        # Add offset to stabilize division
+        trace_offset = trace + offset
+
+        # Calculate F0 on offset trace
+        f0 = np.percentile(trace_offset, percentile)
+
+        # ΔF/F
+        dff = (trace_offset - f0) / f0
+
+        return dff
+
+    @staticmethod
+    def _smooth_trace_gaussian(trace: np.ndarray, sigma=1.5) -> np.ndarray:
+        return gaussian_filter1d(trace, sigma=sigma)
+
+    @staticmethod
+    def _smooth_trace_savgol(trace, window_length=10, polyorder=3):
+        return savgol_filter(trace, window_length, polyorder)
+
+    @staticmethod
+    def _smooth_trace_uniform(trace: np.ndarray) -> np.ndarray:
         window = int(self.framerate * 5)
         return uniform_filter1d(trace, size=window)
+
+    @staticmethod
+    def _smooth_trace_median(trace: np.ndarray, kernel_size: int = 5) -> np.ndarray:
+        if kernel_size % 2 == 0:
+            kernel_size += 1  # enforce odd window for symmetry
+        return medfilt(trace, kernel_size=kernel_size)
 
     def get_processed_traces(self, trace_type: str,
                              plane: Optional[int] = None) -> Union[Dict[int, np.ndarray], np.ndarray]:
